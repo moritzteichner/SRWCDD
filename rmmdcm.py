@@ -18,7 +18,7 @@ from matplotlib import pyplot as plt
 
 # --------- Underlying functionality ---------
 
-# ------ Copied ------
+# ------ Copied from https://github.com/karlnapf/ds3_kernel_testing/blob/master/solutions.ipynb ------
 
 def sq_distances(X, Y=None):
     assert (X.ndim == 2)
@@ -214,7 +214,7 @@ def calculate_f1(file, gamma_factor, mws, los, alpha):
     return burgf1_score, result
 
 
-def calculate_all_f1():
+def calculate_f1_all():
     possible_gamma_factors = [1/1000, 1/100, 5/100, 1/10, 0.5, 1, 5, 10]
     possible_mws = [20,30,40,50]
     possible_los = [2,5,20,40,50,55,60,65]
@@ -243,6 +243,3 @@ def calculate_all_f1():
         print(a_burg)
 
     f.close()
-
-if __name__ == "__main__":
-    calculate_all_f1()
