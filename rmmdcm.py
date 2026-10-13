@@ -1,19 +1,13 @@
 # Imports
 
-import numpy as np
-from scipy.spatial.distance import squareform, pdist, cdist
+import argparse
+import csv
 import json
-import pandas as pd
-
-import sys
-
 import os
 
-import csv
-
-import itertools
-
-from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy.spatial.distance import squareform, pdist, cdist
 
 
 # --------- Underlying functionality ---------
@@ -124,7 +118,7 @@ def max_changes_help(X, min_win_size, gamma_i, los, alpha, rank, shift):
         if (alpha):
             upper_bound = ((1 / index) + (1 / (len(X) - index))) * (1 + np.sqrt(2 * np.log((los / 100) ** (-1)))) ** 2
         else:
-            mmd = lambda X, Y: quadratic_time_mmd(X[:, np.newaxis], Y[:, np.newaxis], kernel)
+            mmd = lambda X, Y: quadratic_time_mmd(X, Y, kernel)
             stats = two_sample_permutation_test(mmd, X[:int(len(X) / 2)], X[int(len(X) / 2):], 400)
             upper_bound = np.percentile(stats, ((1 - ((los / 100) / len(X)))) * 100)
 
@@ -132,8 +126,8 @@ def max_changes_help(X, min_win_size, gamma_i, los, alpha, rank, shift):
             return []
 
         #Recursion
-        left = max_changes_help(X[:index], min_win_size, gamma_i, los, rank + 1, shift)
-        right = max_changes_help(X[index:], min_win_size, gamma_i, los, rank + 1, shift + index)
+        left = max_changes_help(X[:index], min_win_size, gamma_i, los, alpha, rank + 1, shift)
+        right = max_changes_help(X[index:], min_win_size, gamma_i, los, alpha, rank + 1, shift + index)
 
         return [(index + shift)] + left + right
     else:
@@ -171,12 +165,12 @@ def fb_score(true_cps, reported_cps, T=5, beta=1):
     rec = 0
     for x in true_cps:
         all_cps = all_cps + x
-        tps = true_positives(x, reported_cps, T=5)
+        tps = true_positives(x, reported_cps, T=T)
         rec = rec + (tps / len(x))
 
     rec = rec / len(true_cps)
 
-    tps_all = true_positives(all_cps, reported_cps, T=5)
+    tps_all = true_positives(all_cps, reported_cps, T=T)
 
     prec = tps_all / len(reported_cps)
 
@@ -187,8 +181,8 @@ def fb_score(true_cps, reported_cps, T=5, beta=1):
 
 # ---------- Callable functions ----------
 
-def calculate_f1(file, gamma_factor, mws, los, alpha):
-    data = json.load(open(file + ".json"))
+def calculate_f1(file, gamma_factor, mws, los, alpha, data_dir=".", annotations="annotations.json"):
+    data = json.load(open(os.path.join(data_dir, file + ".json")))
     keyword = file
 
     array = np.asarray(pd.DataFrame(data["series"])["raw"])
@@ -202,7 +196,7 @@ def calculate_f1(file, gamma_factor, mws, los, alpha):
 
     result = [0] + result
 
-    raw = json.load(open('annotations.json'))[keyword]
+    raw = json.load(open(annotations))[keyword]
 
     comb_list = []
 
@@ -214,13 +208,14 @@ def calculate_f1(file, gamma_factor, mws, los, alpha):
     return burgf1_score, result
 
 
-def calculate_f1_all():
-    possible_gamma_factors = [1/1000, 1/100, 5/100, 1/10, 0.5, 1, 5, 10]
+def calculate_f1_all(data_dir=".", annotations="annotations.json", out="results.csv"):
+    # Parameter grid from Table 5.1 of the thesis
+    possible_gamma_factors = [0.001, 0.0018, 0.0055, 0.01, 0.018, 0.055, 0.1, 0.18, 0.55, 1, 1.8, 5.5, 10, 55, 100]
     possible_mws = [20,30,40,50]
-    possible_los = [2,5,20,40,50,55,60,65]
+    possible_los = [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 2, 3, 4, 5, 10, 20, 30, 40, 50, 55, 60, 70, 75]
     possible_threshold = [True, False]
 
-    f = open("results", "w")
+    f = open(out, "w", newline="")
     writer = csv.writer(f)
 
     possibles = [(a, b, c, d) for a in possible_gamma_factors for b in possible_mws for c in possible_los for d in possible_threshold]
@@ -230,11 +225,12 @@ def calculate_f1_all():
 
         a_burg = 0
 
-        json_files = [pos_json for pos_json in os.listdir() if pos_json.endswith('.json')]
-        json_files.remove("annotations.json")
+        json_files = [pos_json for pos_json in os.listdir(data_dir) if pos_json.endswith('.json')]
+        if os.path.basename(annotations) in json_files:
+            json_files.remove(os.path.basename(annotations))
         for x in json_files:
             print(x[:-5])
-            burg, cps = calculate_f1(x[:-5], a, b, c, d)
+            burg, cps = calculate_f1(x[:-5], a, b, c, d, data_dir, annotations)
             writer.writerow([str(a) + " " + str(b) + " " + str(c) + " " + str(d), x[:-5], burg, cps])
             print("Burg: " + str(burg) + "\n")
             a_burg += burg
@@ -243,3 +239,12 @@ def calculate_f1_all():
         print(a_burg)
 
     f.close()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the RMMDCD grid search on the TCPDBench data sets.")
+    parser.add_argument("--data-dir", default=".", help="directory containing the TCPD <name>.json files")
+    parser.add_argument("--annotations", default="annotations.json", help="path to the TCPD annotations.json")
+    parser.add_argument("--out", default="results.csv", help="CSV file the per-dataset results are written to")
+    args = parser.parse_args()
+    calculate_f1_all(args.data_dir, args.annotations, args.out)
